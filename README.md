@@ -27,14 +27,6 @@ Ce TP prolonge ce travail en ajoutant les dimensions de **pilotage** vues en cou
 - Des ResourceQuotas et LimitRanges sur les namespaces
 - Un CronJob d'extinction de la plateforme de qualification
 
-## Planning
-
-| Séance | Durée | Contenu |
-|--------|-------|---------|
-| Séance 1 | 3h | Parties 1–2 : Stack observabilité, métriques |
-| Séance 2 | 3h | Parties 3–5 : Logs, alerting, tracing OTel |
-| Séance 3 | 3h | Parties 6–7 : Dimensionnement, FinOps, résilience |
-
 ## Structure du repository
 
 ```
