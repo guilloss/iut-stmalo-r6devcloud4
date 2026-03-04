@@ -1,0 +1,83 @@
+name: Vérification des livrables
+on: [push]
+
+jobs:
+  check-livrables:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier les livrables
+        run: |
+          echo "=== Vérification des livrables ==="
+          ERRORS=0
+
+          # L1 - Post-mortem
+          if [ ! -f docs/postmortem.md ]; then
+            echo "❌ L1 : docs/postmortem.md manquant"
+            ERRORS=$((ERRORS+1))
+          else
+            WORDS=$(wc -w < docs/postmortem.md)
+            if [ "$WORDS" -lt 100 ]; then
+              echo "⚠️  L1 : docs/postmortem.md semble incomplet ($WORDS mots)"
+            else
+              echo "✅ L1 : docs/postmortem.md ($WORDS mots)"
+            fi
+          fi
+
+          # L2 - Manifestes pilotage
+          YAML_PILOTAGE=$(find k8s/pilotage -name '*.yaml' -o -name '*.yml' 2>/dev/null | wc -l)
+          if [ "$YAML_PILOTAGE" -eq 0 ]; then
+            echo "❌ L2 : aucun manifeste dans k8s/pilotage/"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "✅ L2 : k8s/pilotage/ ($YAML_PILOTAGE manifestes)"
+          fi
+
+          # L3 - Résilience
+          if [ ! -f docs/resilience.md ]; then
+            echo "❌ L3 : docs/resilience.md manquant"
+            ERRORS=$((ERRORS+1))
+          else
+            WORDS=$(wc -w < docs/resilience.md)
+            if [ "$WORDS" -lt 100 ]; then
+              echo "⚠️  L3 : docs/resilience.md semble incomplet ($WORDS mots)"
+            else
+              echo "✅ L3 : docs/resilience.md ($WORDS mots)"
+            fi
+          fi
+
+          # L4 - Dashboards
+          JSON_COUNT=$(find grafana/dashboards -name '*.json' 2>/dev/null | wc -l)
+          if [ "$JSON_COUNT" -eq 0 ]; then
+            echo "❌ L4 : aucun dashboard JSON dans grafana/dashboards/"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "✅ L4 : grafana/dashboards/ ($JSON_COUNT dashboards)"
+          fi
+
+          # L5 - OBSERVABILITY.md
+          if [ ! -f docs/OBSERVABILITY.md ]; then
+            echo "❌ L5 : docs/OBSERVABILITY.md manquant"
+            ERRORS=$((ERRORS+1))
+          else
+            WORDS=$(wc -w < docs/OBSERVABILITY.md)
+            echo "✅ L5 : docs/OBSERVABILITY.md ($WORDS mots)"
+          fi
+
+          # L6 - OTel
+          OTEL_FILES=$(find quotes-otel -type f ! -name '.gitkeep' 2>/dev/null | wc -l)
+          if [ "$OTEL_FILES" -eq 0 ]; then
+            echo "❌ L6 : aucun fichier dans quotes-otel/"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "✅ L6 : quotes-otel/ ($OTEL_FILES fichiers)"
+          fi
+
+          echo ""
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "=== $ERRORS livrable(s) manquant(s) ==="
+            exit 1
+          else
+            echo "=== Tous les livrables sont présents ✅ ==="
+          fi
