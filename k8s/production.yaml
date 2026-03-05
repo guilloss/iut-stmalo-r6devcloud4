@@ -1,0 +1,277 @@
+# =============================================================================
+# Manifeste Kubernetes - PRODUCTION
+# Application : Citations du Capitaine Haddock
+# Namespace   : haddock-production
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haddock-production
+---
+# =============================================================================
+# Redis - Base de données
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: haddock-production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: haddock-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: redis
+  template:
+    metadata:
+      labels:
+        service: redis
+    spec:
+      containers:
+        - name: redis-service
+          image: redis:7.4-alpine
+          args: ["--appendonly", "yes"]
+          volumeMounts:
+            - name: redis-storage
+              mountPath: /data
+      volumes:
+        - name: redis-storage
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+  namespace: haddock-production
+spec:
+  type: ClusterIP
+  selector:
+    service: redis
+  ports:
+    - name: tcp
+      port: 6379
+      targetPort: 6379
+---
+# =============================================================================
+# Micro-service : quotes
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quotes
+  namespace: haddock-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: quotes
+  template:
+    metadata:
+      labels:
+        service: quotes
+    spec:
+      containers:
+        - name: quotes-service
+          image: oliviergui/haddock-quotes:0.0.1
+          env:
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quotes-svc
+  namespace: haddock-production
+spec:
+  type: ClusterIP
+  selector:
+    service: quotes
+  ports:
+    - name: web
+      port: 80
+      targetPort: 5000
+---
+# =============================================================================
+# Micro-service : search
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search
+  namespace: haddock-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: search
+  template:
+    metadata:
+      labels:
+        service: search
+    spec:
+      containers:
+        - name: search-service
+          image: oliviergui/haddock-search:0.0.1
+          env:
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-svc
+  namespace: haddock-production
+spec:
+  type: ClusterIP
+  selector:
+    service: search
+  ports:
+    - name: web
+      port: 80
+      targetPort: 5000
+---
+# =============================================================================
+# Job : seed Redis (exécution unique)
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: haddock-production
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        service: haddock-seed
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: haddock-seed
+          image: oliviergui/haddock-seed:0.0.1
+          env:
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+---
+# =============================================================================
+# Micro-service : users
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users
+  namespace: haddock-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: users
+  template:
+    metadata:
+      labels:
+        service: users
+    spec:
+      containers:
+        - name: users-service
+          image: oliviergui/haddock-users:0.0.1
+          env:
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-svc
+  namespace: haddock-production
+spec:
+  type: ClusterIP
+  selector:
+    service: users
+  ports:
+    - name: web
+      port: 80
+      targetPort: 5000
+---
+# =============================================================================
+# Ingress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: global-ingress
+  namespace: haddock-production
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: users.production.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: users-svc
+                port:
+                  number: 80
+    - host: quotes.production.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: quotes-svc
+                port:
+                  number: 80
+    - host: search.production.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: search-svc
+                port:
+                  number: 80
+---
+# =============================================================================
+# Middleware Traefik - Rate Limiting
+# =============================================================================
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: request-limit
+  namespace: haddock-production
+spec:
+  rateLimit:
+    average: 10
+    period: 1m
